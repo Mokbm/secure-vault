@@ -2,8 +2,6 @@
 
 SecureVault is a local command-line password manager written in Python. It creates an encrypted vault on your machine, generates secure passwords for accounts, copies passwords to the clipboard, and supports encrypted backup export/import.
 
-> Security note: this is a personal/educational project and has not been professionally audited. Do not use it as a replacement for a mature password manager for high-value or enterprise accounts.
-
 ## Features
 
 - Create an encrypted local password vault
