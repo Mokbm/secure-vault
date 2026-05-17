@@ -657,6 +657,7 @@ def main():
                 show = input("Show password? (y/n): ").lower()
                 if show == 'y':
                     print(f"Password: {password_val}")
+                    input("Press Enter to continue...")
                 continue
 
         if choice == "1":
@@ -676,6 +677,7 @@ def main():
             show = input("Show password? (y/n): ").lower()
             if show == 'y':
                 print(f"Password: {password_val}")
+                input("Press Enter to continue...")
 
         elif choice == "2" and accounts:
             name = input("Reset password for account (or b to go back): ").strip().lower()
@@ -692,6 +694,7 @@ def main():
                     show = input("Show password? (y/n): ").lower()
                     if show == 'y':
                         print(f"Password: {vault['data'][name]}")
+                        input("Press Enter to continue...")
             else:
                 print("Account not found")
 
