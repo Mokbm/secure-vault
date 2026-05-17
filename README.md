@@ -43,19 +43,27 @@ SecureVault uses:
 - Python 3.10 or newer recommended
 - Dependencies listed in `requirements.txt`
 
-## Installation
+## Quick Start
 
-Clone or download the repository, then open the project folder:
+Clone the repository:
+
+```bash
+git clone https://github.com/Mokbm/secure-vault.git
+```
+
+Open the project folder:
 
 ```bash
 cd secure-vault
 ```
 
-Create and activate a virtual environment:
+Create a virtual environment:
 
 ```bash
 python -m venv .venv
 ```
+
+Activate the virtual environment.
 
 Windows PowerShell:
 
@@ -75,13 +83,19 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-## Usage
-
 Run the app:
 
 ```bash
 python secure_vault.py
 ```
+
+On some Linux/macOS systems, use:
+
+```bash
+python3 secure_vault.py
+```
+
+## Usage
 
 On first launch, SecureVault asks you to create and confirm a master password. After that, use the menu to add accounts, copy passwords, reset passwords, delete entries, and manage encrypted backups.
 
