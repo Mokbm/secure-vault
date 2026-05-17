@@ -140,16 +140,6 @@ backups/
 - `cryptography` for AES-256-GCM encryption
 - `pyperclip` for clipboard support
 
-## Repository Safety
-
-The repository should not contain generated vault data, encrypted backups, virtual environments, bytecode caches, logs, or local environment files. These are excluded in `.gitignore`.
-
-Before publishing, check the repository contents:
-
-```bash
-git status
-```
-
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
