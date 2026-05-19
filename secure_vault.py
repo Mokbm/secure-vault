@@ -1,20 +1,3 @@
-r"""
-SecureVault v2.0 - A secure command-line password manager
-
-SECURITY DESIGN:
-- Key Derivation: Argon2id (64 MB, 3 iterations, 4 threads) with metadata-stored params
-- Encryption: AES-256-GCM (authenticated encryption) with AAD binding
-- Master Password: Minimum 14 characters, must include uppercase, lowercase, digit, and special character
-- Storage: File-based in %APPDATA%\SecureVault\
-
-SECURITY WARNINGS:
-- This is a personal password manager. For high-value or enterprise accounts,
-  use a professionally audited password manager with two-factor authentication.
-- Lockout is a convenience feature only - does NOT protect against attackers
-  with local filesystem access, who can delete security_state.json to bypass it.
-- The real security comes from: strong master password + Argon2id + AES-256-GCM
-"""
-
 import os
 
 import json
