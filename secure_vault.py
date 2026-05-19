@@ -4,7 +4,7 @@ SecureVault v2.0 - A secure command-line password manager
 SECURITY DESIGN:
 - Key Derivation: Argon2id (64 MB, 3 iterations, 4 threads) with metadata-stored params
 - Encryption: AES-256-GCM (authenticated encryption) with AAD binding
-- Master Password: Minimum 14 characters, validated against common passwords
+- Master Password: Minimum 14 characters, must include uppercase, lowercase, digit, and special character
 - Storage: File-based in %APPDATA%\SecureVault\
 
 SECURITY WARNINGS:
@@ -16,6 +16,7 @@ SECURITY WARNINGS:
 """
 
 import os
+
 import json
 import time
 import secrets
@@ -28,7 +29,7 @@ import platform
 import pyperclip
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from argon2 import low_level
+from argon2 import low_level, exceptions as argon2_exceptions
 
 # ==============================================================================
 # CONSTANTS
@@ -65,46 +66,7 @@ ERROR_MESSAGES = {
     "invalid_backup": "Backup file is invalid or unsupported version.",
     "import_failed": "Import failed. Current vault unchanged.",
     "wrong_password": "Incorrect master password.",
-    "weak_password": "Password is too common or simple.",
-}
-
-# Common passwords denylist (top ~200 most common)
-COMMON_PASSWORDS = {
-    "password", "123456", "123456789", "12345678", "12345", "1234567890",
-    "qwerty", "abc123", "password1", "admin", "letmein", "welcome",
-    "monkey", "dragon", "master", "login", "passw0rd", "shadow",
-    "sunshine", "princess", "football", "michael", "superman",
-    "batman", "trustno1", "iloveyou", "hello", "charlie", "donald",
-    "654321", "qwerty123", "access", "flower", "mustang", "internet",
-    "starwars", "computer", "jesus", "maggie", "purple", "freedom",
-    "whatever", "ginger", "hammer", "silver", "austin", "daniel",
-    "rockyou", "amanda", "summer", "love", "ashley", "nicole",
-    "bailey", "passw0rd123", "secret", "test", "testing", "babygirl",
-    "chocolate", "cookie", "jordan", "alexandra", "secret123", "121212",
-    "flower123", "password123", "password2", "qwertyuiop", "hunter2",
-    "password12", "123123", "111111", "000000", "666666", "7777777",
-    "88888888", "99999999", "password!", "p@ssw0rd", "p@ssword",
-    "admin123", "root", "toor", "test1234", "test123", "changeme",
-    "password01", "1234567", "123456a", "1q2w3e4r", "1q2w3e4r5t",
-    "q1w2e3r4", "zxcvbnm", "asdfgh", "asdfghjkl", "qazwsxedc",
-    "zaq12wsx", "zaq1xsw2", "xsw21qaz", "1qaz2wsx", "1qazxsw2",
-    "password11", "password1234", "123456a1", "letmein123",
-    "adminadmin", "rootroot", "administrator", "metallica",
-    "samsung", "linkedin", "facebook", "twitter", "instagram",
-    "myspace", "youtube", "gmail", "yahoo", "hotmail", "outlook",
-    "password12345", "password123456", "trustno1", "letmein1",
-    "dragon123", "monkey123", "master123", "baseball", "soccer",
-    "hockey", "ranger", "rangers", "liverpool", "manutd", "chelsea",
-    "arsenal", "yankees", "cowboys", "eagles", "patriots", "steelers",
-    "lakers", "celtics", "miami", "boston", "chicago", "detroit",
-    "jennifer", "joshua", "christina", "danielle", "jessica",
-    "matthew", "andrew", "joseph", "ryan", "john", "robert",
-    "william", "david", "richard", "thomas", "charles", "anthony",
-    "steven", "paul", "mark", "donald", "steven", "peter",
-    "password99", "secure", "secure123", "pass1234", "pass123",
-    "qwerty1", "qwerty12", "qwerty1234", "asdf1234", "asdf123",
-    "zxcv1234", "poiuytrewq", "mnbvcxz", "lkjhgfdsa", "1q2w3e",
-    "1qaz2wsx3edc", "1qazxsw23edc", "1q2w3e4r5t6y7u8i9o0p"
+    "weak_password": "Password is too weak or simple.",
 }
 
 
@@ -141,10 +103,21 @@ def atomic_write(filepath, data):
             f.flush()
             os.fsync(f.fileno())
         os.replace(temp_path, filepath)
-    except:
+    except (IOError, OSError):
         if os.path.exists(temp_path):
-            os.remove(temp_path)
-        raise
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        return False
+    except Exception:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        return False
+    return True
 
 
 def generate_secure_password(length=20):
@@ -189,16 +162,16 @@ def decrypt_data(nonce, ciphertext, key, aad):
 # ==============================================================================
 
 def is_weak_password(password):
-    """Check if password is weak or commonly used."""
-    if password.lower() in COMMON_PASSWORDS:
+    """Check if password meets strength requirements."""
+    if not any(c.isupper() for c in password):
         return True
-    if len(set(password)) < 4:
+    if not any(c.islower() for c in password):
         return True
-    if password.isdigit():
+    if not any(c.isdigit() for c in password):
         return True
-    if password.isalpha() and len(password) < 10:
+    if not any(c in string.punctuation for c in password):
         return True
-    if len(set(password)) < len(password) // 2:
+    if len(set(password)) < 6:
         return True
     return False
 
@@ -208,7 +181,7 @@ def validate_master_password(password):
     if len(password) < MIN_MASTER_PASSWORD:
         return False, f"Password must be at least {MIN_MASTER_PASSWORD} characters"
     if is_weak_password(password):
-        return False, "Password is too common or weak. Choose something more secure."
+        return False, ERROR_MESSAGES["weak_password"]
     return True, None
 
 
@@ -224,7 +197,7 @@ def load_security_state():
     try:
         with open(SECURITY_STATE_FILE, 'r') as f:
             return json.load(f)
-    except:
+    except Exception:
         return {"failed_attempts": 0, "lockout_until": None}
 
 
@@ -240,7 +213,7 @@ def check_lockout():
     if lockout:
         try:
             lockout_time = time.mktime(time.strptime(lockout, "%Y-%m-%dT%H:%M:%SZ"))
-        except:
+        except Exception:
             save_security_state({"failed_attempts": 0, "lockout_until": None})
             return False
         
@@ -290,14 +263,18 @@ def load_vault_file():
         return None
     try:
         with open(VAULT_FILE, 'r') as f:
-            return json.load(f)
-    except:
+            vault_data = json.load(f)
+        required_keys = ["kdf", "nonce", "ciphertext", "verification"]
+        if not all(k in vault_data for k in required_keys):
+            return None
+        return vault_data
+    except Exception:
         return None
 
 
 def save_vault_file(vault_data):
     """Save vault file with atomic write."""
-    atomic_write(VAULT_FILE, json.dumps(vault_data, indent=2))
+    return atomic_write(VAULT_FILE, json.dumps(vault_data, indent=2))
 
 
 def create_vault(master_password):
@@ -348,22 +325,26 @@ def create_vault(master_password):
 
 def verify_master_password(master_password, vault):
     """Verify master password against verification token."""
-    kdf_params = vault["kdf"]
-    salt = base64.b64decode(kdf_params["salt"])
-    key = derive_key(master_password, salt, kdf_params)
-
-    token_aad = serialize_aad({
-        "type": "verification_token",
-        "version": 2,
-        "kdf": kdf_params.copy()
-    })
-
     try:
+        kdf_params = vault["kdf"]
+        if "salt" not in kdf_params:
+            return False
+        salt = base64.b64decode(kdf_params["salt"])
+
+        token_aad = serialize_aad({
+            "type": "verification_token",
+            "version": 2,
+            "kdf": kdf_params.copy()
+        })
+
+        key = derive_key(master_password, salt, kdf_params)
         token_nonce = base64.b64decode(vault["verification"]["nonce"])
         token_ciphertext = base64.b64decode(vault["verification"]["ciphertext"])
         decrypted = decrypt_data(token_nonce, token_ciphertext, key, token_aad)
         return decrypted.decode() == VERIFICATION_TOKEN
-    except:
+    except (argon2_exceptions.HashingError, argon2_exceptions.VerifyMismatchError):
+        return False
+    except Exception:
         return False
 
 
@@ -372,17 +353,19 @@ def load_vault(master_password, vault_file):
     if vault_file is None:
         return None
 
-    kdf_params = vault_file["kdf"]
-    salt = base64.b64decode(kdf_params["salt"])
-    key = derive_key(master_password, salt, kdf_params)
-
-    vault_aad = serialize_aad({
-        "version": 2,
-        "kdf": kdf_params.copy(),
-        "encryption": "AES-256-GCM"
-    })
-
     try:
+        kdf_params = vault_file["kdf"]
+        if "salt" not in kdf_params:
+            return None
+        salt = base64.b64decode(kdf_params["salt"])
+
+        vault_aad = serialize_aad({
+            "version": 2,
+            "kdf": kdf_params.copy(),
+            "encryption": "AES-256-GCM"
+        })
+
+        key = derive_key(master_password, salt, kdf_params)
         nonce = base64.b64decode(vault_file["nonce"])
         ciphertext = base64.b64decode(vault_file["ciphertext"])
         decrypted = decrypt_data(nonce, ciphertext, key, vault_aad)
@@ -391,6 +374,9 @@ def load_vault(master_password, vault_file):
         vault_file["data"] = vault_data
         vault_file["key"] = key
         return vault_file
+    except (argon2_exceptions.HashingError, argon2_exceptions.VerifyMismatchError):
+        print("Error: Could not decrypt vault. Check your master password.")
+        return None
     except Exception:
         print("Error: Could not decrypt vault. Check your master password.")
         return None
@@ -417,7 +403,8 @@ def save_vault(master_password, vault):
     vault_to_save["ciphertext"] = base64.b64encode(ciphertext).decode()
     vault_to_save["modified"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-    save_vault_file(vault_to_save)
+    if not save_vault_file(vault_to_save):
+        return False
 
     vault["nonce"] = vault_to_save["nonce"]
     vault["ciphertext"] = vault_to_save["ciphertext"]
@@ -440,7 +427,7 @@ def copy_to_clipboard(password):
             current = pyperclip.paste()
             if current == copied_password:
                 pyperclip.copy("")
-        except:
+        except Exception:
             pass
 
     try:
@@ -503,7 +490,7 @@ def import_backup(master_password, vault):
     try:
         with open(full_path, 'r') as f:
             backup_data = json.load(f)
-    except:
+    except Exception:
         print("Error: Invalid backup file")
         return
 
@@ -514,6 +501,8 @@ def import_backup(master_password, vault):
     if not all(k in backup_data for k in ["kdf", "nonce", "ciphertext"]):
         print("Error: Backup missing required fields")
         return
+
+    backup_password = getpass.getpass("Enter backup's master password: ")
 
     state = load_security_state()
     if state.get("failed_attempts", 0) >= MAX_ATTEMPTS:
@@ -533,7 +522,7 @@ def import_backup(master_password, vault):
 
     kdf_params = backup_data["kdf"]
     salt = base64.b64decode(kdf_params["salt"])
-    key = derive_key(master_password, salt, kdf_params)
+    decrypt_key = derive_key(backup_password, salt, kdf_params)
 
     backup_aad = serialize_aad({
         "version": 2,
@@ -544,14 +533,16 @@ def import_backup(master_password, vault):
     try:
         nonce = base64.b64decode(backup_data["nonce"])
         ciphertext = base64.b64decode(backup_data["ciphertext"])
-        decrypted = decrypt_data(nonce, ciphertext, key, backup_aad)
+        decrypted = decrypt_data(nonce, ciphertext, decrypt_key, backup_aad)
         vault_data = json.loads(decrypted)
-    except:
+    except Exception:
         print("Error: Could not decrypt backup. Wrong password or corrupted data.")
         return
 
     vault["data"] = vault_data
     vault["kdf"] = kdf_params
+
+    encrypt_key = derive_key(master_password, salt, kdf_params)
 
     token_aad = serialize_aad({
         "type": "verification_token",
@@ -559,14 +550,16 @@ def import_backup(master_password, vault):
         "kdf": kdf_params.copy()
     })
     token_nonce, token_ciphertext = encrypt_data(
-        VERIFICATION_TOKEN.encode(), key, token_aad
+        VERIFICATION_TOKEN.encode(), encrypt_key, token_aad
     )
     vault["verification"] = {
         "nonce": base64.b64encode(token_nonce).decode(),
         "ciphertext": base64.b64encode(token_ciphertext).decode()
     }
 
-    save_vault(master_password, vault)
+    if not save_vault(master_password, vault):
+        print("Error: Failed to save vault after import. File may be locked or inaccessible.")
+        return
     print(f"Imported {len(vault_data)} accounts")
 
 
@@ -597,30 +590,42 @@ def main():
 
         vault = create_vault(password)
         vault["data"] = {}
-        save_vault(password, vault)
+        if not save_vault(password, vault):
+            print("Error: Failed to save vault. File may be locked or inaccessible.")
+            return
         print("Vault created successfully!")
         
     else:
-        if check_lockout():
+        try:
+            while True:
+                if check_lockout():
+                    return
+
+                print("\n=== Login ===")
+                password = getpass.getpass("Enter master password: ")
+
+                if verify_master_password(password, vault_file):
+                    break
+
+                attempts = increment_attempts()
+                remaining = MAX_ATTEMPTS - attempts
+                if remaining > 0:
+                    print(f"Incorrect password. {remaining} attempts remaining")
+                else:
+                    check_lockout()
+                    return
+
+            reset_lockout()
+            vault = load_vault(password, vault_file)
+
+            if vault is None:
+                print("Error: Could not load vault")
+                return
+        except KeyboardInterrupt:
+            print("\nCancelled.")
             return
-
-        print("\n=== Login ===")
-        password = getpass.getpass("Enter master password: ")
-
-        if not verify_master_password(password, vault_file):
-            attempts = increment_attempts()
-            remaining = MAX_ATTEMPTS - attempts
-            if remaining > 0:
-                print(f"Incorrect password. {remaining} attempts remaining")
-            else:
-                check_lockout()
-            return
-
-        reset_lockout()
-        vault = load_vault(password, vault_file)
-
-        if vault is None:
-            print("Error: Could not load vault")
+        except Exception as e:
+            print(f"\nError: {e}")
             return
 
     while True:
@@ -670,7 +675,9 @@ def main():
 
             password_val = generate_secure_password()
             vault["data"][name] = password_val
-            save_vault(password, vault)
+            if not save_vault(password, vault):
+                print("Error: Failed to save vault. File may be locked or inaccessible.")
+                continue
             print(f"Created: {name}")
 
             copy_to_clipboard(password_val)
@@ -687,7 +694,9 @@ def main():
                 confirm = input(f"Reset {name} password? (y/n): ").lower()
                 if confirm == 'y':
                     vault["data"][name] = generate_secure_password()
-                    save_vault(password, vault)
+                    if not save_vault(password, vault):
+                        print("Error: Failed to save vault. File may be locked or inaccessible.")
+                        continue
                     print(f"New password for {name}")
 
                     copy_to_clipboard(vault["data"][name])
@@ -706,19 +715,23 @@ def main():
                 confirm = input(f"Delete {name}? (y/n): ").lower()
                 if confirm == 'y':
                     del vault["data"][name]
-                    save_vault(password, vault)
+                    if not save_vault(password, vault):
+                        print("Error: Failed to save vault. File may be locked or inaccessible.")
+                        continue
                     print("Deleted")
             else:
                 print("Account not found")
 
         elif choice == "4":
             export_backup(vault)
+            input("\nPress Enter to continue...")
 
         elif choice == "5":
             import_backup(password, vault)
             vault = load_vault(password, load_vault_file())
             if vault is None:
                 break
+            input("\nPress Enter to continue...")
 
         else:
             print("Invalid option")
